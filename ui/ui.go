@@ -2,13 +2,12 @@ package ui
 
 import (
 	"fmt"
-	"os"
-	"strconv"
+	// "os"
+	// "strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/coreos/go-systemd/daemon"
 	"github.com/golang-collections/collections/stack"
 	"github.com/gotk3/gotk3/gdk"
 	"github.com/gotk3/gotk3/gtk"
@@ -36,8 +35,8 @@ type UI struct {
 
 	NotificationsBox			*uiWidgets.NotificationsBox
 
-	splashPanel					*SplashPanel
-	backgroundTask				*utils.BackgroundTask
+	// splashPanel					*SplashPanel
+	///backgroundTask				*utils.BackgroundTask
 	grid						*gtk.Grid
 	window						*gtk.Window
 	time						time.Time
@@ -48,12 +47,21 @@ type UI struct {
 	connectionAttempts			int
 }
 
-func New(endpoint, key string, width, height int) *UI {
-	logger.TraceEnter("ui.New()")
+func CreateUi() *UI {
+	logger.TraceEnter("ui.CreateUi()")
 
-	if width == 0 || height == 0 {
-		width = utils.WindowWidth
-		height = utils.WindowHeight
+	octoScreenConfig := utils.GetOctoScreenConfigInstance()
+	endpoint := octoScreenConfig.OctoPrintConfig.Server.Host
+	key := octoScreenConfig.OctoPrintConfig.API.Key
+	width := octoScreenConfig.Width
+	height := octoScreenConfig.Height
+
+	if width == 0 {
+		panic("the window's width was not specified")
+	}
+
+	if height == 0 {
+		panic("the window's height was not specified")
 	}
 
 	instance := &UI {
@@ -72,61 +80,63 @@ func New(endpoint, key string, width, height int) *UI {
 		height:						height,
 	}
 
-	instance.window.Connect("configure-event", func(win *gtk.Window) {
+	instance.initialize1()
+
+	logger.TraceLeave("ui.CreateUi()")
+
+	return instance
+}
+
+func (this *UI) initialize1() {
+	logger.TraceEnter("ui.initialize1()")
+
+	this.window.Connect("configure-event", func(win *gtk.Window) {
 		allocatedWidth:= win.GetAllocatedWidth()
 		allocatedHeight:= win.GetAllocatedHeight()
 		sizeWidth, sizeHeight := win.GetSize()
 
-		if (allocatedWidth > width || allocatedHeight > height) ||
-			(sizeWidth > width || sizeHeight > height) {
-			logger.Errorf("Window resize went past max size.  allocatedWidth:%d allocatedHeight:%d sizeWidth:%d sizeHeight:%d",
+		if (allocatedWidth > this.width || allocatedHeight > this.height) ||
+			(sizeWidth > this.width || sizeHeight > this.height) {
+			logger.Errorf(
+				"Window resize went past max size.  allocatedWidth:%d allocatedHeight:%d sizeWidth:%d sizeHeight:%d",
 				allocatedWidth,
 				allocatedHeight,
 				sizeWidth,
-				sizeHeight)
-			logger.Errorf("Window resize went past max size.  Target width and height: %dx%d",
-				width,
-				height)
+				sizeHeight,
+			)
+			logger.Errorf(
+				"Window resize went past max size.  Target width and height: %dx%d",
+				this.width,
+				this.height,
+			)
 		}
 	})
 
 	switch {
-		case width > 480:
-			instance.scaleFactor = 2
+		case this.width > 480:
+			this.scaleFactor = 2
 
-		case width > 1000:
-			instance.scaleFactor = 3
+		case this.width > 1000:
+			this.scaleFactor = 3
 
 		default:
-			instance.scaleFactor = 1
+			this.scaleFactor = 1
 	}
 
-	instance.splashPanel = NewSplashPanel(instance)
+	// this.splashPanel = NewSplashPanel(this)
 
-	// Default timeout of 20 seconds.
-	durration := time.Second * 20
+	this.initialize2()
 
-	// Experimental, set the timeout based on config setting, but only if the config is pressent.
-	updateFrequency := os.Getenv("EXPERIMENTAL_UI_UPDATE_FREQUENCY")
-	if updateFrequency != "" {
-		logger.Infof("Ui.New() - EXPERIMENTAL_UI_UPDATE_FREQUENCY is present, frequency is %s", updateFrequency)
-		val, err := strconv.Atoi(updateFrequency)
-		if err == nil {
-			durration = time.Second * time.Duration(val)
-		} else {
-			logger.LogError("Ui.New()", "strconv.Atoi()", err)
-		}
-	}
+	// this.GoToPanel(NewSplashPanel(this))
+	// this.GoToPanel(IdleStatusPanel(this))
+	// this.GoToPanel(ConnectToNetworkPanel(this))
+	this.GoToPanel(GetConnectionPanelInstance(this))
 
-	instance.backgroundTask = utils.CreateBackgroundTask(durration, instance.update)
-	instance.initialize()
-
-	logger.TraceLeave("ui.New()")
-	return instance
+	logger.TraceLeave("ui.initialize1()")
 }
 
-func (this *UI) initialize() {
-	logger.TraceEnter("ui.initialize()")
+func (this *UI) initialize2() {
+	logger.TraceEnter("ui.initialize2()")
 
 	defer this.window.ShowAll()
 	this.loadStyle()
@@ -135,7 +145,9 @@ func (this *UI) initialize() {
 	this.window.SetDefaultSize(this.width, this.height)
 	this.window.SetResizable(false)
 
-	this.window.Connect("show", this.backgroundTask.Start)
+	///this.createBackgroundTask()
+	///this.window.Connect("show", this.backgroundTask.Start)
+
 	this.window.Connect("destroy", func() {
 		logger.Debug("window destroy callback was called, now executing MainQuit()")
 		gtk.MainQuit()
@@ -147,15 +159,30 @@ func (this *UI) initialize() {
 	this.grid = utils.MustGrid()
 	overlay.Add(this.grid)
 
-	this.sdNotify(daemon.SdNotifyReady)
+	// connectionManager := utils.GetConnectionManagerInstance(this.Client)
+	// connectionManager.AttemptToConnect()
 
-	logger.TraceLeave("ui.initialize()")
+	GetOctoPrintResponseManagerInstance(this)
+
+	logger.TraceLeave("ui.initialize2()")
 }
+/**
+func (this *UI) createBackgroundTask() {
+	logger.TraceEnter("ui.createBackgroundTask()")
+
+	// Default timeout of 10 seconds.
+	duration := utils.GetExperimentalFrequency(10, "EXPERIMENTAL_UI_UPDATE_FREQUENCY")
+	this.backgroundTask = utils.CreateBackgroundTask(duration, this.Update)
+	
+	logger.TraceLeave("ui.createBackgroundTask()")
+}
+**/
+
 
 func (this *UI) loadStyle() {
 	logger.TraceEnter("ui.loadStyle()")
 
-	cssProvider := utils.MustCSSProviderFromFile(utils.CSSFilename)
+	cssProvider := utils.MustCssProviderFromFile(utils.CssFileName)
 
 	screenDefault, err := gdk.ScreenGetDefault()
 	if err != nil {
@@ -169,8 +196,51 @@ func (this *UI) loadStyle() {
 	logger.TraceLeave("ui.loadStyle()")
 }
 
-var errMercyPeriod = time.Second * 10
+func (this *UI) Update() {
+	logger.TraceEnter("ui.update()")
 
+	/*
+	if this.connectionAttempts > 8 {
+		logger.Info("ui.update() - this.connectionAttempts > 8")
+		this.splashPanel.putOnHold()
+
+		logger.TraceLeave("ui.update()")
+		return
+	}
+
+	logger.Infof("ui.update() - this.UIState is: %q", this.UIState)
+
+	if this.UIState == "splash" {
+		this.connectionAttempts++
+	} else {
+		this.connectionAttempts = 0
+	}
+
+	this.verifyConnection()
+
+	if this.OctoPrintPluginIsAvailable {
+		this.checkNotification()
+	}
+	*/
+
+	connectionManager := utils.GetConnectionManagerInstance(this.Client)
+	if connectionManager.IsConnectedToOctoPrint == true {
+		if this.Settings == nil {
+			this.loadSettings()
+		}
+	}
+
+
+
+	logger.TraceLeave("ui.update()")
+}
+
+
+
+
+
+
+/*
 func (this *UI) verifyConnection() {
 	logger.TraceEnter("ui.verifyConnection()")
 
@@ -205,7 +275,7 @@ func (this *UI) verifyConnection() {
 		logger.Debugf("ui.verifyConnection() - newUIState is now: %s", newUIState)
 	}
 
-	this.splashPanel.Label.SetText(splashMessage)
+	// this.splashPanel.Label.SetText(splashMessage)
 
 	defer func() {
 		this.setUiState(newUIState, splashMessage)
@@ -213,8 +283,9 @@ func (this *UI) verifyConnection() {
 
 	logger.TraceLeave("ui.verifyConnection()")
 }
+*/
 
-
+/*
 func (this *UI) getUiStateAndMessageFromConnectionResponse(
 	connectionResponse *dataModels.ConnectionResponse,
 	newUIState string,
@@ -269,8 +340,23 @@ func (this *UI) getUiStateAndMessageFromConnectionResponse(
 	logger.TraceLeave("ui.getUiStateAndMessageFromConnectionResponse()")
 	return newUIState, splashMessage
 }
+*/
+
+// **********************************
 
 
+
+
+
+
+
+
+
+// var errMercyPeriod = time.Second * 10
+
+
+
+/*
 func (this *UI) getUiStateAndMessageFromError(
 	err error,
 	newUIState string,
@@ -303,15 +389,16 @@ func (this *UI) getUiStateAndMessageFromError(
 	logger.TraceLeave("ui.getUiStateAndMessageFromError()")
 	return newUIState, splashMessage
 }
+*/
 
-
+/*
 func (this *UI) setUiState(
 	newUiState string,
 	splashMessage string,
 ) {
 	logger.TraceEnter("ui.setUiState()")
 
-	this.splashPanel.Label.SetText(splashMessage)
+	// this.splashPanel.Label.SetText(splashMessage)
 
 	if newUiState == this.UIState {
 		logger.Infof("ui.setUiState() - newUiState and ui.UIState are the same (%q)", this.UIState)
@@ -333,8 +420,8 @@ func (this *UI) setUiState(
 			logger.Info("ui.setUiState() - printing a job")
 			this.GoToPanel(PrintStatusPanel(this))
 
-		case "splash":
-			this.GoToPanel(this.splashPanel)
+		// case "splash":
+		//	this.GoToPanel(this.splashPanel)
 
 		default:
 			logger.Errorf("ERROR: ui.setUiState() - unknown newUiState case: %q", newUiState)
@@ -342,8 +429,9 @@ func (this *UI) setUiState(
 
 	logger.TraceLeave("ui.setUiState()")
 }
+*/
 
-
+/*
 func (this *UI) checkNotification() {
 	logger.TraceEnter("ui.checkNotification()")
 
@@ -366,6 +454,8 @@ func (this *UI) checkNotification() {
 
 	logger.TraceLeave("ui.checkNotification()")
 }
+*/
+
 
 func (this *UI) loadSettings() {
 	logger.TraceEnter("ui.loadSettings()")
@@ -463,47 +553,6 @@ func (this *UI) validateMenuItems(menuItems []dataModels.MenuItem, name string, 
 	return true
 }
 
-func (this *UI) update() {
-	logger.TraceEnter("ui.update()")
-
-	this.sdNotify(daemon.SdNotifyWatchdog)
-
-	if this.connectionAttempts > 8 {
-		logger.Info("ui.update() - this.connectionAttempts > 8")
-		this.splashPanel.putOnHold()
-
-		logger.TraceLeave("ui.update()")
-		return
-	}
-
-	logger.Infof("ui.update() - this.UIState is: %q", this.UIState)
-
-	if this.UIState == "splash" {
-		this.connectionAttempts++
-	} else {
-		this.connectionAttempts = 0
-	}
-
-	this.verifyConnection()
-
-	if this.OctoPrintPluginIsAvailable {
-		this.checkNotification()
-	}
-
-	logger.TraceLeave("ui.update()")
-}
-
-func (this *UI) sdNotify(state string) {
-	logger.TraceEnter("ui.sdNotify()")
-
-	_, err := daemon.SdNotify(false, state)
-	if err != nil {
-		logger.Errorf("ui.sdNotify()", "SdNotify()", err)
-	}
-
-	logger.TraceLeave("ui.sdNotify()")
-}
-
 func (this *UI) GoToPanel(panel interfaces.IPanel) {
 	logger.TraceEnter("ui.GoToPanel()")
 
@@ -572,7 +621,7 @@ func (this *UI) errToUser(err error) string {
 	text := strings.ToLower(err.Error())
 	if strings.Contains(text, "connection refused") {
 		logger.TraceLeave("ui.errToUser() - connection refused")
-		return "Unable to connect to OctoPrint, check if it running."
+		return "Unable to connect to OctoPrint, check if it is running."
 	} else if strings.Contains(text, "request canceled") {
 		logger.TraceLeave("ui.errToUser() - request canceled")
 		return "Loading..."

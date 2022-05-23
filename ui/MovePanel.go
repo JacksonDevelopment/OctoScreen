@@ -10,19 +10,19 @@ import (
 	// "github.com/Z-Bolt/OctoScreen/utils"
 )
 
-var movePanelInstance *movePanel
-
 type movePanel struct {
 	CommonPanel
 	amountToMoveStepButton    *uiWidgets.AmountToMoveStepButton
 }
 
-func MovePanel(
+var movePanelInstance *movePanel
+
+func GetMovePanelInstance(
 	ui				*UI,
 ) *movePanel {
 	if movePanelInstance == nil {
 		instance := &movePanel {
-			CommonPanel: NewCommonPanel("MovePanel", ui),
+			CommonPanel: CreateCommonPanel("MovePanel", ui),
 		}
 		instance.initialize()
 		movePanelInstance = instance

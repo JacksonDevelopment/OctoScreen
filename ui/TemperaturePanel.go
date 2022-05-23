@@ -4,15 +4,16 @@ import (
 	"github.com/gotk3/gotk3/gtk"
 
 	// "github.com/Z-Bolt/OctoScreen/interfaces"
+	"github.com/Z-Bolt/OctoScreen/logger"
 	"github.com/Z-Bolt/OctoScreen/uiWidgets"
 	"github.com/Z-Bolt/OctoScreen/utils"
 )
 
 
-var temperaturePanelInstance *temperaturePanel
-
 type temperaturePanel struct {
 	CommonPanel
+
+	backgroundTask					*utils.BackgroundTask
 
 	// First row
 	decreaseButton					*uiWidgets.TemperatureIncreaseButton
@@ -28,14 +29,17 @@ type temperaturePanel struct {
 	presetsButton					*gtk.Button
 }
 
-func TemperaturePanel(
+var temperaturePanelInstance *temperaturePanel
+
+func GetTemperaturePanelInstance(
 	ui				*UI,
 ) *temperaturePanel {
 	if temperaturePanelInstance == nil {
-		temperaturePanelInstance = &temperaturePanel{
-			CommonPanel:	NewCommonPanel("TemperaturePanel", ui),
+		temperaturePanelInstance = &temperaturePanel {
+			CommonPanel: CreateCommonPanel("TemperaturePanel", ui),
 		}
 		temperaturePanelInstance.initialize()
+		temperaturePanelInstance.createBackgroundTask()
 	}
 
 	return temperaturePanelInstance
@@ -84,7 +88,42 @@ func (this *temperaturePanel) initialize() {
 	this.Grid().Attach(this.presetsButton, 0, 2, 1, 1)
 }
 
+func (this *temperaturePanel) createBackgroundTask() {
+	logger.TraceEnter("TemperaturePanel.createBackgroundTask()")
+
+	// Default timeout of 1 second.
+	duration := utils.GetExperimentalFrequency(1, "EXPERIMENTAL_IDLE_UPDATE_FREQUENCY")
+	this.backgroundTask = utils.CreateBackgroundTask(duration, this.update)
+	// Update the UI every second, but the data is only updated once every 10 seconds.
+	// See OctoPrintResponseManager.update(). 
+	this.backgroundTask.Start()
+
+	logger.TraceLeave("TemperaturePanel.createBackgroundTask()")
+}
+
+func (this *temperaturePanel) update() {
+	logger.TraceEnter("TemperaturePanel.update()")
+
+	this.updateTemperature()
+
+	logger.TraceLeave("TemperaturePanel.update()")
+}
+
+func (this *temperaturePanel) updateTemperature() {
+	logger.TraceEnter("TemperaturePanel.updateTemperature()")
+
+	octoPrintResponseManager := GetOctoPrintResponseManagerInstance(this.UI)
+	if octoPrintResponseManager.IsConnected() != true {
+		// If not connected, do nothing and leave.
+		logger.TraceLeave("TemperaturePanel.updateTemperature() (not connected)")
+		return
+	}
+
+	this.temperatureStatusBox.UpdateTemperatureData(octoPrintResponseManager.FullStateResponse.Temperature.CurrentTemperatureData)
+
+	logger.TraceLeave("TemperaturePanel.updateTemperature()")
+}
+
 func (this *temperaturePanel) showTemperaturePresetsPanel() {
-	temperaturePresetsPanel := TemperaturePresetsPanel(this.UI, this.selectHotendStepButton)
-	this.UI.GoToPanel(temperaturePresetsPanel)
+	this.UI.GoToPanel(GetTemperaturePresetsPanelInstance(this.UI, this.selectHotendStepButton))
 }

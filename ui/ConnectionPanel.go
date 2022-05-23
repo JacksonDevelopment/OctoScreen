@@ -1,183 +1,202 @@
-
 package ui
 
 import (
 	"fmt"
-	"time"
+	// "os"
+	// "strconv"
+	// "strings"
+	// "sync"
+	// "time"
 
-	"pifke.org/wpasupplicant"
+	"github.com/gotk3/gotk3/gdk"
 	"github.com/gotk3/gotk3/gtk"
 
-	// "github.com/Z-Bolt/OctoScreen/interfaces"
-	// "github.com/Z-Bolt/OctoScreen/uiWidgets"
+	"github.com/Z-Bolt/OctoScreen/interfaces"
+	"github.com/Z-Bolt/OctoScreen/logger"
 	"github.com/Z-Bolt/OctoScreen/utils"
 )
 
 
-var connectionPanelInstance *connectionPanel
-
-var keyBoardChars = []byte{
-	'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
-	'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-	'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
-	'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
-	'0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
-	'!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '-',
-	'=', '.', ',', '|', ':', ';', '/', '~', '`', '[', ']', '{', '}',
-	'±', '§', '\\', ' ',
-}
-
 type connectionPanel struct {
 	CommonPanel
-	pass				*gtk.Entry
-	cursorPosition		int
-	SSID				string
-	SSIDLabel			*gtk.Label
+
+	IsCheckingConnection	bool
+	backgroundTask			*utils.BackgroundTask
+
+	// First row
+	Logo					*gtk.Image
+
+	// Second row
+	Label					*gtk.Label
+
+	// Third row
+	ActionBar				*gtk.Box
+	RetryButton				*gtk.Button
 }
 
-func ConnectionPanel(
-	ui					*UI,
-	SSID				string,
+var connectionPanelInstance *connectionPanel
+
+func GetConnectionPanelInstance(
+	ui				*UI,
 ) *connectionPanel {
 	if connectionPanelInstance == nil {
-		instance := &connectionPanel {
-			CommonPanel:		NewCommonPanel("ConnectionPanel", ui),
-			cursorPosition:		0,
+		connectionPanelInstance = &connectionPanel {
+			CommonPanel: CreateCommonPanel("ConnectionPanel", ui),
+			IsCheckingConnection: true,
 		}
-		instance.initialize()
-		connectionPanelInstance = instance
+		connectionPanelInstance.initialize()
+		connectionPanelInstance.createBackgroundTask()
 	}
-
-	connectionPanelInstance.setSSID(SSID)
 
 	return connectionPanelInstance
 }
 
 func (this *connectionPanel) initialize() {
-	layoutBox := utils.MustBox(gtk.ORIENTATION_VERTICAL, 5)
-	layoutBox.SetHExpand(true)
+	logger.TraceEnter("ConnectionPanel.initialize()")
 
-	layoutBox.Add(this.createTopBar())
-	layoutBox.Add(this.createKeyboardWindow())
-	layoutBox.Add(this.createActionBar())
-	this.Grid().Add(layoutBox)
+	_, windowHeight := this.UI.window.GetSize()
+	unscaledLogo := utils.MustImageFromFile("logos/octoscreen-logo.svg")
+	pixbuf := unscaledLogo.GetPixbuf()
+	width := pixbuf.GetWidth()
+	height := pixbuf.GetHeight()
+
+	originalLogoWidth := 154.75
+	originalLogoHeight := 103.75
+	displayHeight := windowHeight / 2.0
+
+	scaleFactor := float64(displayHeight) / originalLogoHeight
+	displayWidth := int(originalLogoWidth * scaleFactor)
+	displayHeight = int(originalLogoHeight * scaleFactor)
+
+	this.Logo = utils.MustImageFromFileWithSize("logos/octoscreen-logo.svg", displayWidth, displayHeight)
+
+	pixbuf.ScaleSimple(
+		this.UI.scaleFactor * width,
+		this.UI.scaleFactor * height,
+		gdk.INTERP_NEAREST,
+	)
+
+	this.Label = utils.MustLabel("Welcome to OctoScreen")
+	this.Label.SetHExpand(true)
+	this.Label.SetLineWrap(false)
+	this.Label.SetMaxWidthChars(60)
+
+	main := utils.MustBox(gtk.ORIENTATION_VERTICAL, 15)
+	main.SetHExpand(true)
+	main.SetHAlign(gtk.ALIGN_CENTER)
+	main.SetVExpand(true)
+	main.SetVAlign(gtk.ALIGN_CENTER)
+
+	main.Add(this.Logo)
+	main.Add(this.Label)
+
+	this.createActionBar()
+
+	box := utils.MustBox(gtk.ORIENTATION_VERTICAL, 0)
+	box.Add(main)
+	box.Add(this.ActionBar)
+	this.Grid().Add(box)
+
+	logger.TraceLeave("ConnectionPanel.initialize()")
 }
 
-func (this *connectionPanel) setSSID(SSID string) {
-	this.SSID = SSID
-	str := fmt.Sprintf("Enter password for \"%s\": ", utils.StrEllipsisLen(this.SSID, 18))
-	this.SSIDLabel.SetText(str)
+func (this *connectionPanel) createActionBar() {
+	logger.TraceEnter("ConnectionPanel.createActionBar()")
+
+	this.ActionBar = utils.MustBox(gtk.ORIENTATION_HORIZONTAL, 5)
+	this.ActionBar.SetHAlign(gtk.ALIGN_END)
+
+	this.RetryButton = utils.MustButtonImageStyle("Retry", "refresh.svg", "color-none", this.initializeConnectionState)
+	this.RetryButton.SetProperty("width-request", this.Scaled(100))
+
+	this.ActionBar.Add(this.RetryButton)
+
+	this.displayButtons(false)
+
+	logger.TraceLeave("ConnectionPanel.createActionBar()")
 }
 
-func (this *connectionPanel) createTopBar() *gtk.Box {
-	this.pass, _ = gtk.EntryNew()
-	this.pass.SetProperty("height-request", this.Scaled(40))
-	this.pass.SetProperty("width-request", this.Scaled(150))
-	this.pass.SetHExpand(true)
+func (this *connectionPanel) displayButtons(display bool) {
+	retryButtonStyleContext, _ := this.RetryButton.GetStyleContext()
+	if display {
+		retryButtonStyleContext.RemoveClass("hidden")
+		this.RetryButton.SetSensitive(true)
+	} else {
+		retryButtonStyleContext.AddClass("hidden")
+		this.RetryButton.SetSensitive(false)
+	}
+}
 
-	topBar := utils.MustBox(gtk.ORIENTATION_HORIZONTAL, 5)
-	topBar.SetHExpand(true)
-	topBar.SetMarginStart(25)
-	topBar.SetHAlign(gtk.ALIGN_START)
-	this.SSIDLabel = utils.MustLabel(fmt.Sprintf("Pass for %s: ", this.SSID))
-	topBar.Add(this.SSIDLabel)
-	topBar.Add(this.pass)
+func (this *connectionPanel) createBackgroundTask() {
+	logger.TraceEnter("ConnectionPanel.createBackgroundTask()")
 
-	image := utils.MustImageFromFileWithSize("backspace.svg", this.Scaled(40), this.Scaled(40))
-	backspaceButton := utils.MustButton(image, func() {
-		if this.cursorPosition == 0 {
-			return
+	this.initializeConnectionState()
+
+	// Default timeout of 5 seconds.
+	duration := utils.GetExperimentalFrequency(5, "EXPERIMENTAL_CONNECTION_PANEL_UPDATE_FREQUENCY")
+	this.backgroundTask = utils.CreateBackgroundTask(duration, this.update)
+	this.backgroundTask.Start()
+
+	logger.TraceLeave("ConnectionPanel.createBackgroundTask()")
+}
+
+func (this *connectionPanel) update() {
+	logger.TraceEnter("ConnectionPanel.update()")
+
+	connectionManager := utils.GetConnectionManagerInstance(this.UI.Client)
+	// connectionManager.UpdateStatus()
+
+	msg := ""
+	if connectionManager.IsConnectedToOctoPrint != true {
+		if connectionManager.ConnectAttempts >= utils.MAX_CONNECTION_ATTEMPTS {
+			msg = fmt.Sprintf("Unable to connect to OctoPrint")
+			this.displayButtons(true)
+		} else if connectionManager.ConnectAttempts == 0 {
+			msg = fmt.Sprintf("Attempting to connect to OctoPrint")
+		} else {
+			msg = fmt.Sprintf("Attempting to connect to OctoPrint...%d", connectionManager.ConnectAttempts + 1)
 		}
-
-		this.pass.DeleteText(this.cursorPosition - 1, this.cursorPosition)
-		this.cursorPosition--
-	})
-
-	topBar.Add(backspaceButton)
-
-	return topBar
-}
-
-func (this *connectionPanel) createActionBar() *gtk.Box {
-	image := utils.MustImageFromFileWithSize("back.svg", this.Scaled(40), this.Scaled(40))
-	backspaceButton := utils.MustButton(image, func() {
-		this.UI.GoToPreviousPanel()
-	})
-
-	backspaceButton.SetHAlign(gtk.ALIGN_END)
-
-	actionBar := utils.MustBox(gtk.ORIENTATION_HORIZONTAL, 5)
-	actionBar.SetHAlign(gtk.ALIGN_END)
-	actionBar.Add(this.createConnectToNetworkButton())
-	actionBar.Add(backspaceButton)
-
-	return actionBar
-}
-
-func (this *connectionPanel) createKeyboardWindow() *gtk.ScrolledWindow {
-	keysGrid := utils.MustGrid()
-	keysGrid.SetRowHomogeneous(true)
-	keysGrid.SetColumnHomogeneous(true)
-
-	keyboardWindow, _ := gtk.ScrolledWindowNew(nil, nil)
-	keyboardWindow.SetProperty("overlay-scrolling", false)
-	keyboardWindow.SetVExpand(true)
-	keyboardWindow.Add(keysGrid)
-
-	row := this.Scaled(3)
-
-	for i, k := range keyBoardChars {
-		buttonHander := &keyButtonHander{char: k, connectionPanel: this}
-		button := utils.MustButtonText(string(k), buttonHander.clicked)
-		ctx, _ := button.GetStyleContext()
-		ctx.AddClass("keyboard")
-		button.SetProperty("height-request", this.Scaled(40))
-		keysGrid.Attach(button, i % row, i / row, 1, 1)
+	} else if connectionManager.IsConnectedToPrinter != true {
+		if connectionManager.ConnectAttempts >= utils.MAX_CONNECTION_ATTEMPTS {
+			msg = fmt.Sprintf("Unable to connect to the printer")
+			this.displayButtons(true)
+		} else if connectionManager.ConnectAttempts == 0 {
+			msg = fmt.Sprintf("Attempting to connect to the printer")
+		} else {
+			msg = fmt.Sprintf("Attempting to connect to the printer...%d", connectionManager.ConnectAttempts + 1)
+		}
+	}
+	
+	if msg != "" {
+		this.Label.SetText(msg)
+		connectionManager.UpdateStatus()
+	} else {
+		currentPanel := this.UI.PanelHistory.Peek().(interfaces.IPanel)
+		if currentPanel.Name() == "ConnectionPanel" {
+			this.UI.Update()
+			this.UI.GoToPanel(GetIdleStatusPanelInstance(this.UI))
+		}
 	}
 
-	return keyboardWindow
+	logger.TraceLeave("ConnectionPanel.update()")
 }
 
-func (this *connectionPanel) createConnectToNetworkButton() *gtk.Button {
-	var button *gtk.Button
+func (this *connectionPanel) initializeConnectionState() {
+	logger.TraceEnter("ConnectionPanel.initializeConnectionState()")
 
-	button = utils.MustButtonText("Connect", func() {
-		button.SetSensitive(false)
-		time.Sleep(time.Second * 1)
-		psk, _ := this.pass.GetText()
-		wpa, _ := wpasupplicant.Unixgram("wlan0")
+	this.displayButtons(false)
 
-		if wpa != nil {
-			wpa.RemoveAllNetworks()
-			wpa.AddNetwork()
-			wpa.SetNetwork(0, "ssid", this.SSID)
-			wpa.SetNetwork(0, "psk", psk)
+	this.Label.SetText("Attempting to connect to OctoPrint")
+	connectionManager := utils.GetConnectionManagerInstance(this.UI.Client)
+	connectionManager.ReInitializeConnectionState()
 
-			go wpa.EnableNetwork(0)
-			time.Sleep(time.Second * 1)
-			go wpa.SaveConfig()
-		}
-
-		time.Sleep(time.Second * 1)
-		this.UI.GoToPreviousPanel()
-	})
-
-	ctx, _ := button.GetStyleContext()
-	ctx.AddClass("color3")
-
-	button.SetProperty("width-request", this.Scaled(150))
-
-	return button
+	logger.TraceLeave("ConnectionPanel.initializeConnectionState()")
 }
 
+func (this *connectionPanel) showSystem() {
+	logger.TraceEnter("ConnectionPanel.showSystem()")
 
+	this.UI.GoToPanel(GetSystemPanelInstance(this.UI))
 
-type keyButtonHander struct {
-	char				byte
-	connectionPanel		*connectionPanel
-}
-
-func (this *keyButtonHander) clicked() {
-	this.connectionPanel.pass.InsertText(string(this.char), this.connectionPanel.cursorPosition)
-	this.connectionPanel.cursorPosition++
+	logger.TraceLeave("ConnectionPanel.showSystem()")
 }

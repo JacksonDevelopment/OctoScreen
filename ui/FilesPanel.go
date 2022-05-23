@@ -2,12 +2,11 @@ package ui
 
 import (
 	"fmt"
-	"os"
+	// "os"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/coreos/go-systemd/daemon"
 	"github.com/dustin/go-humanize"
 	"github.com/gotk3/gotk3/gtk"
 
@@ -20,8 +19,6 @@ import (
 )
 
 
-var filesPanelInstance *filesPanel
-
 type filesPanel struct {
 	CommonPanel
 
@@ -31,7 +28,9 @@ type filesPanel struct {
 	locationHistory		utils.LocationHistory
 }
 
-func FilesPanel(
+var filesPanelInstance *filesPanel
+
+func GetFilesPanelInstance(
 	ui					*UI,
 ) *filesPanel {
 	if filesPanelInstance == nil {
@@ -40,7 +39,7 @@ func FilesPanel(
 		}
 
 		instance := &filesPanel {
-			CommonPanel: NewCommonPanel("FilesPanel", ui),
+			CommonPanel: CreateCommonPanel("FilesPanel", ui),
 			locationHistory: locationHistory,
 		}
 		instance.initialize()
@@ -94,9 +93,6 @@ func (this *filesPanel) createBackButton() *gtk.Button {
 }
 
 func (this *filesPanel) doLoadFiles() {
-	
-	this.UI.sdNotify(daemon.SdNotifyWatchdog)
-	
 	utils.EmptyTheContainer(&this.listBox.Container)
 	atRootLevel := this.displayRootLocations()
 	/*
@@ -242,7 +238,7 @@ func (this *filesPanel) addRootLocation(location dataModels.Location) {
 func (this *filesPanel) createRootLocationButton(location dataModels.Location) *gtk.Button {
 	var itemImage *gtk.Image
 	if location == dataModels.Local {
-		itemImage = utils.MustImageFromFileWithSize("octoprint-tentacle.svg", this.Scaled(35), this.Scaled(35))
+		itemImage = utils.MustImageFromFileWithSize("logos/octoprint-tentacle.svg", this.Scaled(35), this.Scaled(35))
 	} else {
 		itemImage = utils.MustImageFromFileWithSize("sd.svg", this.Scaled(35), this.Scaled(35))
 	}
@@ -503,7 +499,9 @@ func (this *filesPanel) addThumbnail(
 	if fileResponse.Thumbnail != "" {
 		logger.Debugf("FilesPanel.addItem() - fileResponse.Thumbnail is %s", fileResponse.Thumbnail)
 
-		thumbnailUrl := fmt.Sprintf("%s/%s", os.Getenv(utils.EnvBaseURL), fileResponse.Thumbnail)
+		octoScreenConfig := utils.GetOctoScreenConfigInstance()
+		octoPrintConfig := octoScreenConfig.OctoPrintConfig
+		thumbnailUrl := fmt.Sprintf("%s/%s", octoPrintConfig.Server.Host, fileResponse.Thumbnail)
 		logger.Debugf("FilesPanel.addItem() - thumbnailPath is: %q" , thumbnailUrl)
 
 		previewImage, imageFromUrlErr := utils.ImageFromUrl(thumbnailUrl)

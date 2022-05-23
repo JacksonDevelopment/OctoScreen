@@ -13,8 +13,6 @@ import (
 )
 
 
-var bedLevelPanelInstance *bedLevelPanel
-
 type bedLevelPanel struct {
 	CommonPanel
 
@@ -23,18 +21,19 @@ type bedLevelPanel struct {
 	homed				bool
 }
 
-func BedLevelPanel(
+var bedLevelPanelInstance *bedLevelPanel
+
+func GetBedLevelPanelInstance(
 	ui				*UI,
 ) *bedLevelPanel {
 	if bedLevelPanelInstance == nil {
 		instance := &bedLevelPanel {
-			CommonPanel: NewCommonPanel("BedLevelPanel", ui),
+			CommonPanel: CreateCommonPanel("BedLevelPanel", ui),
 		}
 		instance.initialize()
 		bedLevelPanelInstance = instance
+		bedLevelPanelInstance.homed = false
 	}
-
-	bedLevelPanelInstance.homed = false
 
 	return bedLevelPanelInstance
 }

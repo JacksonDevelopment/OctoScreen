@@ -3,20 +3,18 @@ package ui
 import (
 	// "encoding/json"
 	// "fmt"
-	"os"
-	"strconv"
+	// "os"
+	// "strconv"
 	// "sync"
-	"time"
+	// "time"
 
-	"github.com/Z-Bolt/OctoScreen/octoprintApis"
+	// "github.com/Z-Bolt/OctoScreen/octoprintApis"
 	"github.com/Z-Bolt/OctoScreen/octoprintApis/dataModels"
 	"github.com/Z-Bolt/OctoScreen/logger"
 	"github.com/Z-Bolt/OctoScreen/uiWidgets"
 	"github.com/Z-Bolt/OctoScreen/utils"
 )
 
-
-var idleStatusPanelInstance *idleStatusPanel
 
 type idleStatusPanel struct {
 	CommonPanel
@@ -26,33 +24,19 @@ type idleStatusPanel struct {
 	tool2Button			*uiWidgets.ToolButton
 	tool3Button			*uiWidgets.ToolButton
 	bedButton			*uiWidgets.ToolButton
+
+	backgroundTask		*utils.BackgroundTask
 }
 
-func IdleStatusPanel(ui *UI) *idleStatusPanel {
+var idleStatusPanelInstance *idleStatusPanel
+
+func GetIdleStatusPanelInstance(ui *UI) *idleStatusPanel {
 	if idleStatusPanelInstance == nil {
-		instance := &idleStatusPanel{
-			CommonPanel: NewTopLevelCommonPanel("IdleStatusPanel", ui),
+		idleStatusPanelInstance = &idleStatusPanel{
+			CommonPanel: CreateTopLevelCommonPanel("IdleStatusPanel", ui),
 		}
-
-		// Default timeout of 20 seconds.
-		durration := time.Second * 20
-
-		// Experimental, set the timeout based on config setting, but only if the config is pressent.
-		updateFrequency := os.Getenv("EXPERIMENTAL_IDLE_UPDATE_FREQUENCY")
-		if updateFrequency != "" {
-			logger.Infof("Ui.New() - EXPERIMENTAL_IDLE_UPDATE_FREQUENCY is present, frequency is %s", updateFrequency)
-			val, err := strconv.Atoi(updateFrequency)
-			if err == nil {
-				durration = time.Second * time.Duration(val)
-			} else {
-				logger.LogError("Ui.New()", "strconv.Atoi()", err)
-			}
-		}
-
-		instance.backgroundTask = utils.CreateBackgroundTask(durration, instance.update)
-		instance.initialize()
-
-		idleStatusPanelInstance = instance
+		idleStatusPanelInstance.initialize()
+		idleStatusPanelInstance.createBackgroundTask()
 	}
 
 	return idleStatusPanelInstance
@@ -106,17 +90,9 @@ func (this *idleStatusPanel) initialize() {
 func (this *idleStatusPanel) showFiles() {
 	logger.TraceEnter("IdleStatusPanel.showFiles()")
 
-	this.UI.GoToPanel(FilesPanel(this.UI))
+	this.UI.GoToPanel(GetFilesPanelInstance(this.UI))
 
 	logger.TraceLeave("IdleStatusPanel.showFiles()")
-}
-
-func (this *idleStatusPanel) update() {
-	logger.TraceEnter("IdleStatusPanel.update()")
-
-	this.updateTemperature()
-
-	logger.TraceLeave("IdleStatusPanel.update()")
 }
 
 func (this *idleStatusPanel) showTools() {
@@ -167,32 +143,61 @@ func (this *idleStatusPanel) showTools() {
 	logger.TraceLeave("IdleStatusPanel.showTools()")
 }
 
+func (this *idleStatusPanel) createBackgroundTask() {
+	logger.TraceEnter("IdleStatusPanel.createBackgroundTask()")
+
+	// Default timeout of 1 second.
+	duration := utils.GetExperimentalFrequency(1, "EXPERIMENTAL_IDLE_UPDATE_FREQUENCY")
+	this.backgroundTask = utils.CreateBackgroundTask(duration, this.update)
+	// Update the UI every second, but the data is only updated once every 10 seconds.
+	// See OctoPrintResponseManager.update(). 
+	this.backgroundTask.Start()
+
+	logger.TraceLeave("IdleStatusPanel.createBackgroundTask()")
+}
+
+func (this *idleStatusPanel) update() {
+	logger.TraceEnter("IdleStatusPanel.update()")
+
+	this.updateTemperature()
+
+	logger.TraceLeave("IdleStatusPanel.update()")
+}
+
 func (this *idleStatusPanel) updateTemperature() {
 	logger.TraceEnter("IdleStatusPanel.updateTemperature()")
 
-	fullStateResponse, err := (&octoprintApis.FullStateRequest{Exclude: []string{"sd"}}).Do(this.UI.Client)
-	if err != nil {
-		logger.LogError("IdleStatusPanel.updateTemperature()", "Do(StateRequest)", err)
-		logger.TraceLeave("IdleStatusPanel.updateTemperature()")
+	octoPrintResponseManager := GetOctoPrintResponseManagerInstance(this.UI)
+	if octoPrintResponseManager.IsConnected() != true {
+		// If not connected, do nothing and leave.
+		logger.TraceLeave("IdleStatusPanel.updateTemperature() (not connected)")
 		return
 	}
 
-	for tool, currentTemperatureData := range fullStateResponse.Temperature.CurrentTemperatureData {
+	for tool, currentTemperatureData := range octoPrintResponseManager.FullStateResponse.Temperature.CurrentTemperatureData {
 		switch tool {
 			case "bed":
+				logger.Debug("Updating the UI's bed temp")
 				this.bedButton.SetTemperatures(currentTemperatureData)
 
 			case "tool0":
+				logger.Debug("Updating the UI's tool0 temp")
 				this.tool0Button.SetTemperatures(currentTemperatureData)
 
 			case "tool1":
+				logger.Debug("Updating the UI's tool1 temp")
 				this.tool1Button.SetTemperatures(currentTemperatureData)
 
 			case "tool2":
+				logger.Debug("Updating the UI's tool2 temp")
 				this.tool2Button.SetTemperatures(currentTemperatureData)
 
 			case "tool3":
+				logger.Debug("Updating the UI's tool3 temp")
 				this.tool3Button.SetTemperatures(currentTemperatureData)
+
+			default:
+				logger.Errorf("IdleStatusPanel.updateTemperature() - GetOctoPrintResponseManagerInstance() returned an unknown tool: %q", tool)
 		}
 	}
 

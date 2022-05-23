@@ -3,9 +3,9 @@ package ui
 import (
 	"fmt"
 	"net"
-	"os"
-	"strconv"
-	"time"
+	// "os"
+	// "strconv"
+	// "time"
 
 	"pifke.org/wpasupplicant"
 	"github.com/gotk3/gotk3/gtk"
@@ -17,8 +17,6 @@ import (
 )
 
 
-var networkPanelInstance *networkPanel
-
 type networkPanel struct {
 	CommonPanel
 	listBox					*gtk.Box
@@ -27,31 +25,17 @@ type networkPanel struct {
 	overrideForDebugging	bool
 }
 
-func NetworkPanel(
+var networkPanelInstance *networkPanel
+
+func GetNetworkPanelInstance(
 	ui				*UI,
 ) *networkPanel {
 	if networkPanelInstance == nil {
 		instance := &networkPanel {
-			CommonPanel: NewCommonPanel("NetworkPanel", ui),
+			CommonPanel: CreateCommonPanel("NetworkPanel", ui),
 		}
 		instance.initialize()
 
-		// Default timeout of 30 seconds.
-		durration := time.Second * 30
-
-		// Experimental, set the timeout based on config setting, but only if the config is pressent.
-		updateFrequency := os.Getenv("EXPERIMENTAL_NETWORK_UPDATE_FREQUENCY")
-		if updateFrequency != "" {
-			logger.Infof("Ui.New() - EXPERIMENTAL_NETWORK_UPDATE_FREQUENCY is present, frequency is %s", updateFrequency)
-			val, err := strconv.Atoi(updateFrequency)
-			if err == nil {
-				durration = time.Second * time.Duration(val)
-			} else {
-				logger.LogError("Ui.New()", "strconv.Atoi()", err)
-			}
-		}
-
-		instance.backgroundTask = utils.CreateBackgroundTask(durration, instance.update)
 		networkPanelInstance = instance
 	}
 
@@ -67,14 +51,14 @@ func (this *networkPanel) initialize() {
 }
 
 func (this *networkPanel) update() {
-	logger.TraceEnter("networkPanel.update()")
+	logger.TraceEnter("NetworkPanel.update()")
 
 	utils.EmptyTheContainer(&this.listBox.Container)
 	this.setNetStatusText()
 	this.setNetworkItems()
 	this.listBox.ShowAll()
 
-	logger.TraceLeave("networkPanel.update()")
+	logger.TraceLeave("NetworkPanel.update()")
 }
 
 func (this *networkPanel) setNetStatusText() {
@@ -187,7 +171,7 @@ func (this *networkPanel) addNetwork(box *gtk.Box, ssid string) {
 	frame, _ := gtk.FrameNew("")
 
 	clicked := func() {
-		this.UI.GoToPanel(ConnectionPanel(this.UI, ssid))
+		this.UI.GoToPanel(GetConnectToNetworkPanelInstance(this.UI, ssid))
 	}
 
 	image := utils.MustImageFromFileWithSize("network.svg", this.Scaled(25), this.Scaled(25))

@@ -2,8 +2,8 @@ package ui
 
 import (
 	"fmt"
-	"os"
-	"strconv"
+	// "os"
+	// "strconv"
 	"strings"
 	"time"
 
@@ -16,8 +16,6 @@ import (
 	"github.com/Z-Bolt/OctoScreen/utils"
 )
 
-
-var printStatusPanelInstance *printStatusPanel
 
 type printStatusPanel struct {
 	CommonPanel
@@ -37,34 +35,19 @@ type printStatusPanel struct {
 	pauseButton			*gtk.Button
 	stopButton			*gtk.Button
 	menuButton			*gtk.Button
+
+	backgroundTask		*utils.BackgroundTask
 }
 
-func PrintStatusPanel(ui *UI) *printStatusPanel {
+var printStatusPanelInstance *printStatusPanel
+
+func GetPrintStatusPanelInstance(ui *UI) *printStatusPanel {
 	if printStatusPanelInstance == nil {
-		instance := &printStatusPanel{
-			CommonPanel: NewTopLevelCommonPanel("PrintStatusPanel", ui),
+		printStatusPanelInstance = &printStatusPanel{
+			CommonPanel: CreateTopLevelCommonPanel("PrintStatusPanel", ui),
 		}
-
-		// Default timeout of 20 seconds.
-		durration := time.Second * 20
-
-		// Experimental, set the timeout based on config setting, but only if the config is pressent.
-		updateFrequency := os.Getenv("EXPERIMENTAL_PRINT_UPDATE_FREQUENCY")
-		if updateFrequency != "" {
-			logger.Infof("Ui.New() - EXPERIMENTAL_PRINT_UPDATE_FREQUENCY is present, frequency is %s", updateFrequency)
-			val, err := strconv.Atoi(updateFrequency)
-			if err == nil {
-				durration = time.Second * time.Duration(val)
-			} else {
-				logger.LogError("Ui.New()", "strconv.Atoi()", err)
-			}
-		}
-
-		// TODO: revisit... some set the background task and then initialize
-		// and others initialize and then set the background task
-		instance.backgroundTask = utils.CreateBackgroundTask(durration, instance.update)
-		instance.initialize()
-		printStatusPanelInstance = instance
+		printStatusPanelInstance.initialize()
+		printStatusPanelInstance.createBackgroundTask()
 	}
 
 	return printStatusPanelInstance
@@ -128,7 +111,7 @@ func (this *printStatusPanel) showTools() {
 
 func (this *printStatusPanel) createCompleteButton() *gtk.Button {
 	this.completeButton = utils.MustButtonImageStyle("Complete", "complete.svg", "color3", func() {
-		this.UI.GoToPanel(IdleStatusPanel(this.UI))
+		this.UI.GoToPanel(GetIdleStatusPanelInstance(this.UI))
 	})
 
 	return this.completeButton
@@ -183,7 +166,7 @@ func (this *printStatusPanel) createPauseButton() gtk.IWidget {
 		logger.Info("Pausing/Resuming job 2, Do() was just called")
 
 		if err != nil {
-			logger.LogError("print_status.createPauseButton()", "Do(PauseRequest)", err)
+			logger.LogError("PrintStatusPanel.createPauseButton()", "Do(PauseRequest)", err)
 			return
 		}
 
@@ -210,54 +193,80 @@ func (this *printStatusPanel) createControlButton() gtk.IWidget {
 		"printing-control.svg",
 		"color3",
 		func() {
-			this.UI.GoToPanel(PrintMenuPanel(this.UI))
+			this.UI.GoToPanel(GetPrintMenuPanelInstance(this.UI))
 		},
 	)
 	return this.menuButton
 }
 
+func (this *printStatusPanel) createBackgroundTask() {
+	logger.TraceEnter("PrintStatusPanel.createBackgroundTask()")
+
+	// Default timeout of 1 second.
+	duration := utils.GetExperimentalFrequency(1, "EXPERIMENTAL_PRINT_UPDATE_FREQUENCY")
+	this.backgroundTask = utils.CreateBackgroundTask(duration, this.update)
+	// Update the UI every second, but the data is only updated once every 10 seconds.
+	// See OctoPrintResponseManager.update(). 
+	this.backgroundTask.Start()
+
+	logger.TraceLeave("PrintStatusPanel.createBackgroundTask()")
+}
+
 func (this *printStatusPanel) update() {
-	logger.TraceEnter("printStatusPanel.update()")
+	logger.TraceEnter("PrintStatusPanel.update()")
 
 	this.updateTemperature()
 	this.updateJob()
 
-	logger.TraceLeave("printStatusPanel.update()")
+	logger.TraceLeave("PrintStatusPanel.update()")
 }
 
 func (this *printStatusPanel) updateTemperature() {
-	logger.TraceEnter("printStatusPanel.updateTemperature()")
+	logger.TraceEnter("PrintStatusPanel.updateTemperature()")
 
-	fullStateResponse, err := (&octoprintApis.FullStateRequest{Exclude: []string{"sd"}}).Do(this.UI.Client)
-	if err != nil {
-		logger.LogError("print_status.updateTemperature()", "Do(StateRequest)", err)
-		logger.TraceLeave("printStatusPanel.updateTemperature()")
+	octoPrintResponseManager := GetOctoPrintResponseManagerInstance(this.UI)
+	if octoPrintResponseManager.IsConnected() != true {
+		// If not connected, do nothing and leave.
+		logger.TraceLeave("PrintStatusPanel.updateTemperature() (not connected)")
 		return
 	}
 
-	this.doUpdateState(&fullStateResponse.State)
+	this.doUpdateState(&octoPrintResponseManager.FullStateResponse.State)
 
-	for tool, currentTemperatureData := range fullStateResponse.Temperature.CurrentTemperatureData {
+	for tool, currentTemperatureData := range octoPrintResponseManager.FullStateResponse.Temperature.CurrentTemperatureData {
 		text := utils.GetTemperatureDataString(currentTemperatureData)
 		switch tool {
 			case "bed":
+				logger.Debug("Updating the UI's bed temp")
+				// this.bedButton.SetTemperatures(currentTemperatureData)
 				this.bedButton.SetLabel(text)
 
 			case "tool0":
+				logger.Debug("Updating the UI's tool0 temp")
+				// this.tool0Button.SetTemperatures(currentTemperatureData)
 				this.tool0Button.SetLabel(text)
 
 			case "tool1":
+				logger.Debug("Updating the UI's tool1 temp")
+				// this.tool1Button.SetTemperatures(currentTemperatureData)
 				this.tool1Button.SetLabel(text)
 
 			case "tool2":
+				logger.Debug("Updating the UI's tool2 temp")
+				// this.tool2Button.SetTemperatures(currentTemperatureData)
 				this.tool2Button.SetLabel(text)
 
 			case "tool3":
+				logger.Debug("Updating the UI's tool3 temp")
+				// this.tool3Button.SetTemperatures(currentTemperatureData)
 				this.tool3Button.SetLabel(text)
+
+			default:
+				logger.Errorf("PrintStatusPanel.updateTemperature() - GetOctoPrintResponseManagerInstance() returned an unknown tool: %q", tool)
 		}
 	}
 
-	logger.TraceLeave("printStatusPanel.updateTemperature()")
+	logger.TraceLeave("PrintStatusPanel.updateTemperature()")
 }
 
 func (this *printStatusPanel) doUpdateState(printerState *dataModels.PrinterState) {
@@ -318,12 +327,12 @@ func (this *printStatusPanel) doUpdateState(printerState *dataModels.PrinterStat
 }
 
 func (this *printStatusPanel) updateJob() {
-	logger.TraceEnter("printStatusPanel.updateJob()")
+	logger.TraceEnter("PrintStatusPanel.updateJob()")
 
 	jobResponse, err := (&octoprintApis.JobRequest{}).Do(this.UI.Client)
 	if err != nil {
-		logger.LogError("print_status.updateJob()", "Do(JobRequest)", err)
-		logger.TraceLeave("printStatusPanel.updateJob()")
+		logger.LogError("PrintStatusPanel.updateJob()", "Do(JobRequest)", err)
+		logger.TraceLeave("PrintStatusPanel.updateJob()")
 		return
 	}
 
@@ -359,7 +368,7 @@ func (this *printStatusPanel) updateJob() {
 	this.timeLabel.Label.SetLabel(timeSpent)
 	this.timeLeftLabel.Label.SetLabel(timeLeft)
 
-	logger.TraceLeave("printStatusPanel.updateJob()")
+	logger.TraceLeave("PrintStatusPanel.updateJob()")
 }
 
 func confirmStopDialogBox(
@@ -392,7 +401,7 @@ func confirmStopDialogBox(
 		if userResponse == int(gtk.RESPONSE_YES) {
 			logger.Warn("Stopping job")
 			if err := (&octoprintApis.CancelRequest{}).Do(printStatusPanel.UI.Client); err != nil {
-				logger.LogError("print_status.confirmStopDialogBox()", "Do(CancelRequest)", err)
+				logger.LogError("PrintStatusPanel.confirmStopDialogBox()", "Do(CancelRequest)", err)
 				return
 			}
 		}

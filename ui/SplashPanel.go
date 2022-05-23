@@ -8,19 +8,20 @@ import (
 	"github.com/Z-Bolt/OctoScreen/utils"
 )
 
+
 type SplashPanel struct {
 	CommonPanel
 	Label			*gtk.Label
 	RetryButton		*gtk.Button
 }
 
-func NewSplashPanel(ui *UI) *SplashPanel {
-	instane := &SplashPanel {
-		CommonPanel: NewCommonPanel("SplashPanel", ui),
+func CreateSplashPanel(ui *UI) *SplashPanel {
+	instance := &SplashPanel {
+		CommonPanel: CreateCommonPanel("SplashPanel", ui),
 	}
-	instane.initialize()
+	instance.initialize()
 
-	return instane
+	return instance
 }
 
 func (this *SplashPanel) initialize() {
@@ -109,7 +110,7 @@ func (this *SplashPanel) releaseFromHold() {
 func (this *SplashPanel) showNetwork() {
 	logger.TraceEnter("SplashPanel.showNetwork()")
 
-	this.UI.GoToPanel(NetworkPanel(this.UI))
+	this.UI.GoToPanel(GetNetworkPanelInstance(this.UI))
 
 	logger.TraceLeave("SplashPanel.showNetwork()")
 }
@@ -117,7 +118,7 @@ func (this *SplashPanel) showNetwork() {
 func (this *SplashPanel) showSystem() {
 	logger.TraceEnter("SplashPanel.showSystem()")
 
-	this.UI.GoToPanel(SystemPanel(this.UI))
+	this.UI.GoToPanel(GetSystemPanelInstance(this.UI))
 
 	logger.TraceLeave("SplashPanel.showSystem()")
 }

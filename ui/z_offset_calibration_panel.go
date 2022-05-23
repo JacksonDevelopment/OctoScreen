@@ -16,8 +16,6 @@ import (
 )
 
 
-var zOffsetCalibrationPanelInstance *zOffsetCalibrationPanel
-
 type pointCoordinates struct {
 	x float64
 	y float64
@@ -43,21 +41,23 @@ type zOffsetCalibrationPanel struct {
 	manualZCalibrationStepButton	*uiWidgets.ManualZCalibrationStepButton
 }
 
-func ZOffsetCalibrationPanel(
+var zOffsetCalibrationPanelInstance *zOffsetCalibrationPanel
+
+func GetZOffsetCalibrationPanelInstance(
 	ui 					*UI,
 ) *zOffsetCalibrationPanel {
 	if zOffsetCalibrationPanelInstance == nil {
-		instane := &zOffsetCalibrationPanel {
-			CommonPanel: NewCommonPanel("ZOffsetCalibrationPanel", ui),
+		instance := &zOffsetCalibrationPanel {
+			CommonPanel: CreateCommonPanel("ZOffsetCalibrationPanel", ui),
 		}
-		instane.cPoint = pointCoordinates {
+		instance.cPoint = pointCoordinates {
 			x: 20,
 			y: 20,
 			z: 0,
 		}
-		instane.initialize()
+		instance.initialize()
 
-		zOffsetCalibrationPanelInstance = instane
+		zOffsetCalibrationPanelInstance = instance
 	}
 
 	return zOffsetCalibrationPanelInstance
